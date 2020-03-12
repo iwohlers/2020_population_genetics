@@ -1,0 +1,4 @@
+channels:
+  - bioconda
+dependencies:
+  - eigensoft=7.2.1-0
