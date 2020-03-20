@@ -443,14 +443,14 @@ rule download_bergstroem_vcf:
     output: "BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz"
     shell: "wget -P BERGSTROEM2020 ftp://ngs.sanger.ac.uk/production/hgdp/" +\
                    "hgdp_wgs.20190516/" +\
-                   "hgdp_wgs.20190516.full.chr{wildcards.x}.vcf.gz"
+                   "hgdp_wgs.20190516.full.chr{wildcards.x}.vcf.gz >/dev/null"
 
 # Downloading the meta data
 rule download_bergstroem_metadata:
     output: "BERGSTROEM2020/hgdp_wgs.20190516.metadata.txt"
     shell: "wget -P BERGSTROEM2020 ftp://ngs.sanger.ac.uk/production/hgdp/" +\
                    "hgdp_wgs.20190516/metadata/" +\
-                   "hgdp_wgs.20190516.metadata.txt >/dev/null"    
+                   "hgdp_wgs.20190516.metadata.txt"    
 
 # Downloading all relevant files
 rule download_bergstroem_all:
