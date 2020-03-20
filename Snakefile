@@ -362,15 +362,15 @@ rule download_1000g_genotypes_all:
            "1000G/integrated_call_samples_v2.20130502.ALL.ped"
 
 # Concatenate the vcf file from several chromosomes
-rule gp_concatenate_chr_vcfs:
+rule concatenate_chr_vcfs_1000g:
     input: expand("1000G/ALL.chr{chr}_GRCh38.genotypes.20170504.vcf.gz", \
                    chr=[str(x) for x in range(1,23)])
-    output: "1000G/100G.vcf.gz"
+    output: "1000G/1000G.vcf.gz"
     conda: "envs/vcftools.yaml"
     shell: "vcf-concat {input} | bgzip > {output}"
 
 rule preprocess_1000g:
-    input: "1000G/100G.vcf.gz.tbi"
+    input: "1000G/1000G.vcf.gz.tbi"
 
 
 ################################################################################
@@ -426,3 +426,46 @@ rule keep_pass_variants:
 
 rule preprocess_scott:
     input: "SCOTT2016/ciliopathies_exomes_2569_hg38.vcf.gz.tbi"
+
+
+################################################################################
+######################## BERGSTROEM2020 data set ###############################
+################################################################################
+
+# Downloading the README file
+rule download_bergstroem_anno:
+    output: "BERGSTROEM2020/README.data-access.hgdp_wgs.20190516.txt"
+    shell: "wget -P BERGSTROEM2020 ftp://ngs.sanger.ac.uk/production/hgdp/" +\
+                   "hgdp_wgs.20190516/README.data-access.hgdp_wgs.20190516.txt"
+
+# Downloading the VCF files
+rule download_bergstroem_vcf:
+    output: "BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz"
+    shell: "wget -P BERGSTROEM2020 ftp://ngs.sanger.ac.uk/production/hgdp/" +\
+                   "hgdp_wgs.20190516/" +\
+                   "hgdp_wgs.20190516.full.chr{wildcards.x}.vcf.gz"
+
+# Downloading the meta data
+rule download_bergstroem_metadata:
+    output: "BERGSTROEM2020/hgdp_wgs.20190516.metadata.txt"
+    shell: "wget -P BERGSTROEM2020 ftp://ngs.sanger.ac.uk/production/hgdp/" +\
+                   "hgdp_wgs.20190516/metadata/" +\
+                   "hgdp_wgs.20190516.metadata.txt >/dev/null"    
+
+# Downloading all relevant files
+rule download_bergstroem_all:
+    input: expand("BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz", \
+                  x=[str(num) for num in range(1,23)]+["X","Y"]), \
+           "BERGSTROEM2020/README.data-access.hgdp_wgs.20190516.txt", \
+           "BBERGSTROEM2020/hgdp_wgs.20190516.metadata.txt"
+
+# Concatenate the vcf file from several chromosomes
+rule concatenate_chr_vcfs_bergstroem:
+    input: expand("BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz", \
+                  x=[str(num) for num in range(1,23)])
+    output: "BERGSTROEM2020/hgdp_wgs.20190516.full_hg38.vcf.gz"
+    conda: "envs/vcftools.yaml"
+    shell: "vcf-concat {input} | bgzip > {output}"
+
+rule preprocess_bergstroem:
+    input: "BERGSTROEM2020/hgdp_wgs.20190516.full_hg38.vcf.gz.tbi"
