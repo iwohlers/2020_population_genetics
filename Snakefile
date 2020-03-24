@@ -156,7 +156,7 @@ rule change_chrom_names_egyptgsa:
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_egyptgsa:
-    input: "EGYPTGSA/controls_hg38.vcf.gz.tbi"
+    input: "EGYPTGSA/controls_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -171,7 +171,7 @@ rule change_chrom_names_egyptgsapso:
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_egyptgsapso:
-    input: "EGYPTGSAPSO/cases_hg38.vcf.gz.tbi"
+    input: "EGYPTGSAPSO/cases_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -189,7 +189,7 @@ rule cp_and_unzip_egypt_wgs:
     shell: "zcat {input} > {output}"
 
 rule preprocess_egyptwgs:
-    input: "EGYPTWGS/egyptians_hg38.vcf.gz.tbi"
+    input: "EGYPTWGS/egyptians_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -260,7 +260,7 @@ rule change_chrom_names_lazaridis:
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_lazaridis:
-    input: "HOLAZARIDIS2016/HumanOriginsPublic2068_hg38.vcf.gz.tbi"
+    input: "HOLAZARIDIS2016/HumanOriginsPublic2068_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -313,7 +313,7 @@ rule change_chrom_names_busby:
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_busby:
-    input: "BUSBY2020/BusbyWorldwidePopulations_hg38.vcf.gz.tbi"
+    input: "BUSBY2020/BusbyWorldwidePopulations_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -370,7 +370,7 @@ rule concatenate_chr_vcfs_1000g:
     shell: "vcf-concat {input} | bgzip > {output}"
 
 rule preprocess_1000g:
-    input: "1000G/1000G.vcf.gz.tbi"
+    input: "1000G/1000G_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -402,7 +402,7 @@ rule change_chrom_names_fernandes:
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_fernandes:
-    input: "FERNANDES2019/AP_IRAN_clean_hg38.vcf.gz.tbi"
+    input: "FERNANDES2019/AP_IRAN_clean_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -422,10 +422,11 @@ rule keep_pass_variants:
     shell: "vcftools --gzvcf {input} " + \
                     "--remove-filtered-all " + \
                     "--recode " + \
-                    "--out {params.prefix_out} > {log} 2>&1"
+                    "--stdout " + \
+                    ">{output} 2>{log}"
 
 rule preprocess_scott:
-    input: "SCOTT2016/ciliopathies_exomes_2569_hg38.vcf.gz.tbi"
+    input: "SCOTT2016/ciliopathies_exomes_2569_final.vcf.gz.tbi"
 
 
 ################################################################################
@@ -458,7 +459,7 @@ rule download_bergstroem_all:
     input: expand("BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz", \
                   x=[str(num) for num in range(1,23)]+["X","Y"]), \
            "BERGSTROEM2020/README.data-access.hgdp_wgs.20190516.txt", \
-           "BBERGSTROEM2020/hgdp_wgs.20190516.metadata.txt"
+           "BERGSTROEM2020/hgdp_wgs.20190516.metadata.txt"
 
 # Concatenate the vcf file from several chromosomes
 rule concatenate_chr_vcfs_bergstroem:
@@ -469,4 +470,38 @@ rule concatenate_chr_vcfs_bergstroem:
     shell: "vcf-concat {input} | bgzip > {output}"
 
 rule preprocess_bergstroem:
-    input: "BERGSTROEM2020/hgdp_wgs.20190516.full_hg38.vcf.gz.tbi"
+    input: "BERGSTROEM2020/hgdp_wgs.20190516.full_final.vcf.gz.tbi"
+
+
+################################################################################
+############################ JOHN2018 data set #################################
+################################################################################
+
+rule download_john:
+    output: "JOHN2018/Kuwaiti_Exomes_291.vcf.gz"
+    shell: "wget -P JOHN2018 ftp://dgr.dasmaninstitute.org/Kuwaiti_Exomes_291.vcf.gz"
+
+rule cp_unzip_replace_empty_john:
+    input: "JOHN2018/Kuwaiti_Exomes_291.vcf.gz"
+    output: "JOHN2018/Kuwaiti_Exomes_291_hg37.vcf"
+    shell: "zcat {input} | sed 's/\t\t/\t.\t/g' > {output}"
+
+rule preprocess_john:
+    input: "JOHN2018/Kuwaiti_Exomes_291_final.vcf.gz.tbi"
+    
+
+################################################################################
+#################### Compiling samples for analysis ############################
+################################################################################
+
+# Here, we compile the samples to be used for a specific admixture analyis 
+# that is specified by a user-chosen analysis name
+# The meta table columns by which to choose samples can be 
+# Dataset, Population, Africa subclass, Region, Country
+
+
+
+################################################################################
+#################### Conducting admixture analysis #############################
+################################################################################
+
