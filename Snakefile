@@ -53,6 +53,13 @@ rule index_for_bcftools:
     conda: "envs/bcftools.yaml"
     shell: "tabix -p vcf {input}"
 
+rule bcftools_stats:
+    input: "{path}/{filename}.vcf.gz",
+           "{path}/{filename}.vcf.gz.tbi"
+    output: "{path}/{filename}.bcftools_stats"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools stats {input[0]} > {output}"
+
 rule list_samplenames:
     input: "{DATASET}/{vcf_file}.vcf.gz",
            "{DATASET}/{vcf_file}.vcf.gz.tbi"
@@ -115,6 +122,8 @@ rule liftover_37To38:
     log: "{dataset}/{filename}.log"
     conda: "envs/picard.yaml"
     shell: "picard LiftoverVcf " + \
+           "-Djava.io.tmpdir=\"tmp\" " + \
+           "-XX:ParallelGCThreads=16 " + \
            "-Xmx280g " + \
            "I={input.vcf} " + \
            "O={output.lifted} " + \
@@ -418,7 +427,6 @@ rule keep_pass_variants:
     output: "SCOTT2016/ciliopathies_exomes_2569_hg37.vcf"
     log: "SCOTT2016/scott_keeppass.log"
     conda: "envs/vcftools.yaml"
-    params: prefix_out=lambda wildcards, output: output[0][:-4]
     shell: "vcftools --gzvcf {input} " + \
                     "--remove-filtered-all " + \
                     "--recode " + \
@@ -488,7 +496,82 @@ rule cp_unzip_replace_empty_john:
 
 rule preprocess_john:
     input: "JOHN2018/Kuwaiti_Exomes_291_final.vcf.gz.tbi"
-    
+
+
+################################################################################
+######################## RODRIGUEZFLORES2016 data set ##########################
+################################################################################
+
+# For this dataset, we exclude variants with filter "LowQual", have to rename
+# the chromosomes to include "chr" and perform variant lifting from 37 to 38
+# Also, we may have to fix the VCF header
+
+rule exclude_lowqual_add_header:
+    input: "data/RODRIGUEZFLORES2016/QG108.Share/Vcf/QG108.Autosomal.gq30.dp10.vcf.gz",
+           "data/RODRIGUEZFLORES2016/QG108.Share/Vcf/QG108.Autosomal.gq30.dp10.header.txt"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.vcf"
+    shell: "cat {input[1]} > {output}; "
+           "zcat {input[0]} | grep -v '##' | grep -v 'LowQual' >> {output} "
+
+rule change_chrom_names_rodriguez:
+    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.vcf",
+           "liftover/change_chrom_names.txt"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg37.vcf"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
+
+rule preprocess_rodriguez:
+    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_final.vcf.gz.tbi"
+
+
+################################################################################
+############################ FAKHRO2018 data set ###############################
+################################################################################
+
+# For this exome sequencing dataset, we exclude variants with filter "LowQual", have to rename
+# the chromosomes to include "chr" and perform variant lifting from 37 to 38
+# Further, we exclude the individuals that have been wgs and are thus part of
+# the RODRIGUEZFLORES2016 data set
+
+rule exclude_lowqual:
+    input: "data/FAKHRO2016/QG1005.Share/Integrated/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224.vcf.gz"
+    output: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224.vcf"
+    shell: "zcat {input} | grep '#' > {output}; "
+           "zcat {input} | grep -v '#' | grep -v 'LowQual' >> {output} "
+
+# We exclude all individuals that belong in fact to the RODRIGUESZFLORES206 data
+# set, and all variants that after this individuals filtering have only 0/0 
+# genotypes for all individuals (i.e. a minor allele count --mac of zero, i.e.
+# --mac less than 1)
+# This results in only 178477 variants.
+# According to the Fakhro publication: "After exclusion of relatives and 
+# application of batch-specific filters, an average of 4,045,064 SNPs were 
+# observed per genome (n=88), an average of 15,382 SNPs were observed per 
+# Exome51 Mb (n=853) and an average of 13,538 SNPs were observed per Exome38 Mb 
+# (n=64). "
+rule exclude_wgs_individuals:
+    input: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224.vcf",
+           "data/FAKHRO2016/QG1005.Share/Integrated/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224.exclude_individuals.txt"
+    output: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224_exome.vcf"
+    log: "FAKHRO2016/fakhro_exclude_wgs_individuals.log"
+    conda: "envs/vcftools.yaml"
+    shell: "vcftools --gzvcf {input[0]} " + \
+                    "--remove {input[1]} " + \
+                    "--mac 1 " + \
+                    "--recode " + \
+                    "--stdout " + \
+                    ">{output} 2>{log}"
+
+rule change_chrom_names_fakhro:
+    input: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224_exome.vcf",
+           "liftover/change_chrom_names.txt"
+    output: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224_hg37.vcf"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
+
+rule preprocess_fakhro:
+    input: "FAKHRO2016/Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224_final.vcf.gz.tbi"
+
 
 ################################################################################
 #################### Compiling samples for analysis ############################
@@ -497,7 +580,251 @@ rule preprocess_john:
 # Here, we compile the samples to be used for a specific admixture analyis 
 # that is specified by a user-chosen analysis name
 # The meta table columns by which to choose samples can be 
-# Dataset, Population, Africa subclass, Region, Country
+# SAMPLE, DATASET, WORLD_REGION, AFRICA_REGION, POPULATION, COUNTRY, 
+# GENOTYPING_METHOD
+
+rule compile_samples_for_analysis:
+    input: "analysis_config/META_MASTER.txt",
+           "analysis_config/config/{analysis}.txt"
+    output: "admixture/{analysis}/sample_anno.txt"
+    run:
+        criteria = []
+        with open(input[1],"r") as f_in:
+            for line in f_in:
+                if line[0] == '#' or line[:6] == 'SAMPLE':
+                    continue
+                criteria.append(line.strip("\n").split(","))
+        with open(input[0],"r") as f_in, open(output[0],"w") as f_out:
+            for line in f_in:
+                if line[:6] == "SAMPLE":
+                    continue
+                sample_meta = line.strip("\n").split("\t")
+                for criterion in criteria:
+                    ok = 0
+                    for feature_num in range(7):
+                        if criterion[feature_num] == '' or \
+                           criterion[feature_num] == sample_meta[feature_num]:
+                            ok += 1
+                    if ok >= 7:
+                        f_out.write(line)
+                        break
+
+rule dataset_list:
+    input: "admixture/{analysis}/sample_anno.txt"
+    output: "admixture/{analysis}/datasets.txt"
+    shell: "cat {input} | cut -f 2 | sort | uniq > {output}"
+
+DATASET_FILE = { \
+    "1000G" : "1000G_final.vcf.gz", \
+    "BERGSTROEM2020" : "hgdp_wgs.20190516.full_final.vcf.gz", \
+    "BUSBY2020" : "BusbyWorldwidePopulations_final.vcf.gz", \
+    "EGYPTGSA" : "controls_final.vcf.gz", \
+    "EGYPTGSAPSO" : "cases_final.vcf.gz", \
+    "EGYPTWGS" : "egyptians_final.vcf.gz", \
+    "FAKHRO2016" : "Qatar.unrelated.all-1005.autosomal.integrated.SNPs.20160224_final.vcf.gz", \
+    "FERNANDES2019" : "AP_IRAN_clean_final.vcf.gz", \
+    "HOLAZARIDIS2016" : "HumanOriginsPublic2068_final.vcf.gz", \
+    "JOHN2018" : "Kuwaiti_Exomes_291_final.vcf.gz", \
+    "RODRIGUEZFLORES2016" : "QG108.Autosomal.gq30.dp10_final.vcf.gz", \
+    "SCOTT2016" : "ciliopathies_exomes_2569_final.vcf.gz" \
+}
+
+rule symlinking_dataset_files:
+     input: "admixture/{analysis}/datasets.txt"
+     output: "admixture/{analysis}/data/symlinking.done"
+     params: sym_prefix=lambda wildcards, output: output[0][:-15]
+     run:
+        shell("mkdir -p admixture/{wildcards.analysis}/data;")
+        with open(input[0],"r") as f_in:
+            for line in f_in:
+                datasetname = line.strip("\n")
+                target_file = DATASET_FILE[datasetname]
+                # Symlink to variant files
+                shell("ln -sf  ../../../"+datasetname+"/"+target_file+" "+ \
+                      "admixture/"+wildcards.analysis+"/data/"+ \
+                      datasetname+".vcf.gz")
+                # Symlink to index files
+                shell("ln -sf  ../../../"+datasetname+"/"+target_file+".tbi "+ \
+                      "admixture/"+wildcards.analysis+"/data/"+ \
+                      datasetname+".vcf.gz.tbi")
+        shell("touch {output}")
+
+# Intersecting files: bcftools isec options
+# -c, --collapse snps|indels|both|all|some|none 
+# -n, --nfiles [+-=]INT|~BITMAP
+#    output positions present in this many (=), this many or more (+), this many 
+#    or fewer (-), or the exact same (~) files 
+rule intersecting_dataset_files:
+    input:  "admixture/{analysis}/datasets.txt",
+            "admixture/{analysis}/data/symlinking.done"
+    output: "admixture/{analysis}/data/sites.txt",
+            "admixture/{analysis}/data/0000.vcf.gz",
+            "admixture/{analysis}/data/0001.vcf.gz",
+    run: 
+        # Intersecting all files
+        # The bitmak used by bcftools isec should be all 1, because we want the
+        # variants shared by all datasets; also, we don't want to merge anything
+        # that is multiallelic
+        bitmask = ""
+        with open(input[0],"r") as f_in:
+            for line in f_in:
+                bitmask += "1" 
+        # This generates files 0000.vcf,0001.vcf, etc
+        shell("bcftools isec -c none " + \
+                            "-n~"+bitmask+" " + \
+                            "--output-type z " + \
+                            "-p admixture/{wildcards.analysis}/data/ " + \
+                            "admixture/{wildcards.analysis}/data/*.vcf.gz"
+        )
+
+# This rule gets only two data set files as input, but in fact merges up to 
+# eleven (i.e. all available) data sets
+# Merging file
+#  -m, --merge snps|indels|both|all|none|id
+#    The option controls what types of multiallelic records can be created: 
+#         -m all    ..  SNP records can be merged with indel records
+# In fact, if there are multialelic variants, then these should alrady have 
+# identical ref and alt alleles after intersecting the files with option -c none
+rule merging_datasets:
+    input: "admixture/{analysis}/data/sites.txt",
+           "admixture/{analysis}/data/0000.vcf.gz",
+           "admixture/{analysis}/data/0001.vcf.gz"
+    output: "admixture/{analysis}/{analysis}.vcf.gz"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools merge " + \
+              "--merge all " + \
+              "--output-type z " + \
+              "--output {output} " + \
+              "--threads 4 " + \
+              "admixture/{wildcards.analysis}/data/00*.vcf.gz"
+
+# Here, we apply actually several quite strict filtering criteria, in order to
+# select variants that are not likely to have some technical artifacts, since
+# we perform LD pruning anyway later, it is fine to exclude here all variants
+# that may cause problems. We exclude:
+# (i) indels (--remove-indels)
+# (ii) variants with minor allele frequency less than parameter (--maf)
+# (iii) variants with more than 1% missing genotypes (--max-missing)
+# (iv) biallelic variants (--min-alleles 2 and --max-alleles 2)
+# (v) significantly violating hardy weinberg disequilibrium (--hwe 0.000001)
+# (vi) allow only autosomes, i.e. chromosomes 1-22
+rule filter_for_admixture:
+    input: "admixture/{analysis}/{analysis}.vcf.gz"
+    output: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf"
+    log: "admixture/{analysis}/{analysis}_filtered_{maf}.log"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+"
+    conda: "envs/vcftools.yaml"
+    shell: "vcftools --gzvcf {input} " + \
+                    "--remove-indels " + \
+                    "--maf {wildcards.maf} " + \
+                    "--max-missing 0.99 " + \
+                    "--min-alleles 2 " + \
+                    "--max-alleles 2 " + \
+                    "--hwe 0.000001 " + \
+                    "--chr chr1 --chr chr2 --chr chr3 --chr chr4 --chr chr5 "+ \
+                    "--chr chr6 --chr chr7 --chr chr8 --chr chr9 "+ \
+                    "--chr chr10 --chr chr11 --chr chr12 --chr chr13 " + \
+                    "--chr chr14 --chr chr15 --chr chr16 --chr chr17 " + \
+                    "--chr chr18 --chr chr19 --chr chr20 --chr chr21 " + \
+                    "--chr chr22 "+ \
+                    "--recode " + \
+                    "--stdout " + \
+                    "> {output} 2>{log}"
+
+# Converting vcf files to plink binary format (bed/bim/fam) for admixture
+# Sample ID conversion: 
+# --double-id causes both family and individual IDs to be set to the sample ID
+rule vcf_to_plink:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf.gz"
+    output: "admixture/{analysis}/{analysis}_filtered_{maf}.bed",
+            "admixture/{analysis}/{analysis}_filtered_{maf}.bim",
+            "admixture/{analysis}/{analysis}_filtered_{maf}.fam"
+    params: out_base=lambda wildcards, output: output[0][:-4]
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+"
+    conda: "envs/plink2.yaml"
+    shell: "plink2 --vcf {input} " + \
+                  "--double-id " + \
+                  "--make-bed " + \
+                  "--out {params.out_base}"
+
+# LD prune the PLINK files; therefore, first make a list of SNPs in LD (and not 
+# in LD)(i.e. to be removed or not)
+# Parameters for indep-pairwise: [window size]<kb> [step size (variant ct)] 
+# [VIF threshold]
+# Explanation Plink website): the command above that specifies 50 5 0.5 would 
+# a) consider a window of 50 SNPs, 
+# b) calculate LD between each pair of SNPs in the window, 
+# c) remove one of a pair of SNPs if the LD is greater than 0.5, 
+# d) shift the window 5 SNPs forward and repeat the procedure
+# Abraham 2014 used: 1000 10 0.02
+# Anderson 2010 used: 50 5 0.2
+# Wang 2009 used: 100 ? 0.2
+# Fellay 2009 used: 1500 150 0.2 
+# LD prune the PLINK files; therefore, first make a list of SNPs in LD (and not 
+# in LD)(i.e. to be removed or not)
+# Parameters for indep-pairwise: [window size]<kb> [step size (variant ct)] 
+# [VIF threshold]
+# Explanation Plink website): the command above that specifies 50 5 0.5 would 
+# a) consider a window of 50 SNPs, 
+# b) calculate LD between each pair of SNPs in the window, 
+# c) remove one of a pair of SNPs if the LD is greater than 0.5, 
+# d) shift the window 5 SNPs forward and repeat the procedure
+# Abraham 2014 used: 1000 10 0.02
+# Anderson 2010 used: 50 5 0.2
+# Wang 2009 used: 100 ? 0.2
+# Fellay 2009 used: 1500 150 0.2 
+rule find_ld_pruned_snps:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}.bed", 
+           "admixture/{analysis}/{analysis}_filtered_{maf}.bim",
+           "admixture/{analysis}/{analysis}_filtered_{maf}.fam"
+    output: "admixture/{analysis}/{analysis}_filtered_{maf}.prune.in", 
+            "admixture/{analysis}/{analysis}_filtered_{maf}.prune.out"
+    params: in_base = lambda wildcards, input: input[0][:-4]
+    conda: "envs/plink2.yaml"
+    shell: "plink2 --bfile {params.in_base} " + \
+                  "--indep-pairwise 1000 10 0.2 " + \
+                  "--out {params.in_base} "
+
+# Now exclude the pruned SNPs
+rule exclude_ld_pruned_snps:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}.bed", 
+            "admixture/{analysis}/{analysis}_filtered_{maf}.bim",
+            "admixture/{analysis}/{analysis}_filtered_{maf}.fam",
+            "admixture/{analysis}/{analysis}_filtered_{maf}.prune.in"
+    output: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bed", 
+            "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bim",
+            "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam"
+    params: in_base = lambda wildcards, input: input[0][:-4],
+            out_base = lambda wildcards, output: output[0][:-4]
+    conda: "envs/plink2.yaml"
+    shell: "plink2 --bfile {params.in_base} " + \
+                  "--extract {input[3]} " + \
+                  "--make-bed " + \
+                  "--out {params.out_base}"
+
+# Since admixture only produces the output files in the current directory, we
+# go to the output dir and execute there
+rule run_admixture:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bed", 
+    output: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.{K}.Q",
+            "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.{K}.P"
+    log: "admixture/{analysis}/{analysis}_{maf}.{K}.log"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
+    conda: "envs/admixture.yaml"
+    shell: "cd admixture/{wildcards.analysis}; " + \
+           "admixture  --seed=42 " + \
+                       "-j24 " + \
+                       "--cv=10 " + \
+                       "../../{input[0]} {wildcards.K} > ../../{log}"
+
+rule plot_admixture_q_values:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.{K}.Q",
+           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam",
+           "analysis_config/META_MASTER.txt"
+    output: "admixture/{analysis}/{analysis}_{maf}.{K}.Q.pdf"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
+    script: "scripts/plot_q_estimates.R"
+    
 
 
 
