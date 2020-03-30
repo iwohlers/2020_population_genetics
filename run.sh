@@ -9,7 +9,8 @@ source activate workflow_2020_population_genetics
 
 echo "RUNNING SNAKEMAKE WORKFLOW..."
 
-snakemake --unlock --rerun-incomplete -p --use-conda preprocess_egyptgsa preprocess_egyptgsapso preprocess_egyptwgs preprocess_lazaridis preprocess_busby  preprocess_1000g  preprocess_fernandes preprocess_scott preprocess_bergstroem preprocess_rodriguez
+#snakemake --rerun-incomplete -p --use-conda preprocess_egyptgsa preprocess_egyptgsapso preprocess_egyptwgs preprocess_lazaridis preprocess_busby  preprocess_1000g  preprocess_fernandes preprocess_scott preprocess_bergstroem preprocess_rodriguez
+snakemake -j 6 --rerun-incomplete -p --use-conda admixture_all
 #snakemake -p -j 10 --use-conda liftover_egypt_gsa_to_38_all
 #--cluster "sbatch -c 8 --mem-per-cpu=30GB --partition=lied"
 

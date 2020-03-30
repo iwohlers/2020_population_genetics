@@ -1,0 +1,4 @@
+channels:
+  - bioconda
+dependencies:
+  - r-pophelper=2.3.0-0

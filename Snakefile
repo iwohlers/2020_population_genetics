@@ -122,9 +122,9 @@ rule liftover_37To38:
     log: "{dataset}/{filename}.log"
     conda: "envs/picard.yaml"
     shell: "picard LiftoverVcf " + \
-           "-Djava.io.tmpdir=\"tmp\" " + \
-           "-XX:ParallelGCThreads=16 " + \
-           "-Xmx280g " + \
+           "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
+           "-XX:ParallelGCThreads=4 " + \
+           "-Xmx250g " + \
            "I={input.vcf} " + \
            "O={output.lifted} " + \
            "CHAIN={input.chain} " + \
@@ -704,7 +704,7 @@ rule merging_datasets:
 # that may cause problems. We exclude:
 # (i) indels (--remove-indels)
 # (ii) variants with minor allele frequency less than parameter (--maf)
-# (iii) variants with more than 1% missing genotypes (--max-missing)
+# (iii) variants with more than 5% missing genotypes (--max-missing)
 # (iv) biallelic variants (--min-alleles 2 and --max-alleles 2)
 # (v) significantly violating hardy weinberg disequilibrium (--hwe 0.000001)
 # (vi) allow only autosomes, i.e. chromosomes 1-22
@@ -717,7 +717,7 @@ rule filter_for_admixture:
     shell: "vcftools --gzvcf {input} " + \
                     "--remove-indels " + \
                     "--maf {wildcards.maf} " + \
-                    "--max-missing 0.99 " + \
+                    "--max-missing 0.95 " + \
                     "--min-alleles 2 " + \
                     "--max-alleles 2 " + \
                     "--hwe 0.000001 " + \
@@ -739,13 +739,15 @@ rule vcf_to_plink:
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.bed",
             "admixture/{analysis}/{analysis}_filtered_{maf}.bim",
             "admixture/{analysis}/{analysis}_filtered_{maf}.fam"
+    log: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf_to_plink.log"
     params: out_base=lambda wildcards, output: output[0][:-4]
     wildcard_constraints: maf="([0-9]*[.])?[0-9]+"
     conda: "envs/plink2.yaml"
     shell: "plink2 --vcf {input} " + \
                   "--double-id " + \
                   "--make-bed " + \
-                  "--out {params.out_base}"
+                  "--out {params.out_base} " + \
+                  ">{log} 2>&1"
 
 # LD prune the PLINK files; therefore, first make a list of SNPs in LD (and not 
 # in LD)(i.e. to be removed or not)
@@ -779,11 +781,13 @@ rule find_ld_pruned_snps:
            "admixture/{analysis}/{analysis}_filtered_{maf}.fam"
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.prune.in", 
             "admixture/{analysis}/{analysis}_filtered_{maf}.prune.out"
+    log: "admixture/{analysis}/{analysis}_filtered_{maf}.find_ld_pruned_snps.log"
     params: in_base = lambda wildcards, input: input[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
                   "--indep-pairwise 1000 10 0.2 " + \
-                  "--out {params.in_base} "
+                  "--out {params.in_base} " + \
+                  ">{log} 2>&1"
 
 # Now exclude the pruned SNPs
 rule exclude_ld_pruned_snps:
@@ -794,13 +798,35 @@ rule exclude_ld_pruned_snps:
     output: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bed", 
             "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bim",
             "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam"
+    log: "admixture/{analysis}/{analysis}_filtered_{maf}.exclude_ld_pruned_snps.log"
     params: in_base = lambda wildcards, input: input[0][:-4],
             out_base = lambda wildcards, output: output[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
                   "--extract {input[3]} " + \
                   "--make-bed " + \
-                  "--out {params.out_base}"
+                  "--out {params.out_base} " + \
+                  ">{log} 2>&1"
+
+
+################################################################################
+#################### Conducting admixture analysis #############################
+################################################################################
+
+# Getting the number of variants after intersecting the data sets,
+# the number of variants after filtering and the number of variants after
+# pruning, which is the number of variants going into admixture analysis.
+rule num_variants_admixture:
+    input: "admixture/{analysis}/{analysis}.vcf.gz",
+           "admixture/{analysis}/{analysis}_filtered_{MAF}.vcf",
+           "admixture/{analysis}/{analysis}_filtered_{MAF}_pruned.bim"
+    output: "admixture/{analysis}/{analysis}_{MAF}_numvariants.txt"
+    shell: "echo \"After intersection:\" > {output}; " + \
+           "zcat {input[0]} | grep -v '#' | wc -l >> {output}; " + \
+           "echo \"After filtering:\" >> {output}; " + \
+           "cat {input[1]} | grep -v '#' | wc -l >> {output}; " + \ 
+           "echo \"After pruning:\" >> {output}; " + \    
+           "cat {input[2]} | wc -l >> {output}; "    
 
 # Since admixture only produces the output files in the current directory, we
 # go to the output dir and execute there
@@ -813,8 +839,8 @@ rule run_admixture:
     conda: "envs/admixture.yaml"
     shell: "cd admixture/{wildcards.analysis}; " + \
            "admixture  --seed=42 " + \
-                       "-j24 " + \
-                       "--cv=10 " + \
+                       "-j48 " + \
+                       "--cv=5 " + \
                        "../../{input[0]} {wildcards.K} > ../../{log}"
 
 rule plot_admixture_q_values:
@@ -822,13 +848,47 @@ rule plot_admixture_q_values:
            "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam",
            "analysis_config/META_MASTER.txt"
     output: "admixture/{analysis}/{analysis}_{maf}.{K}.Q.pdf"
+    conda: "envs/pophelper.yaml"
     wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
     script: "scripts/plot_q_estimates.R"
+
+rule compile_cv_values:
+    input: expand("admixture/{{analysis}}/{{analysis}}_{{maf}}.{K}.log", \
+                   K=range(1,16))
+    output: "admixture/{analysis}/{analysis}_{maf}.cv"
+    shell: "cat {input} | grep 'CV error' > {output}"
+
+rule plot_admixture_pophelper:
+    input: "analysis_config/META_MASTER.txt",
+           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam",
+           "admixture/{analysis}/{analysis}_{maf}.cv",
+           "admixture/{analysis}/{analysis}_{maf}_numvariants.txt",
+           expand("admixture/{{analysis}}/{{analysis}}_filtered_{{maf}}_pruned.{K}.Q", \
+                   K=range(1,16))
+    output: "admixture/{analysis}/{analysis}_{maf}.pophelper.pdf"
+    params: out_path = lambda wildcards, output: "/".join(output[0].split("/")[:-1])+"/", \
+            out_filename = lambda wildcards, output: output[0].split("/")[-1][:-4]
+    conda: "envs/pophelper.yaml"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
+    script: "scripts/pophelper.R"
+
+rule admixture_all:
+    input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
+                   analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_1000G", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_FAKHRO2016", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_FERNANDES2019", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_HOLAZARIDIS2016", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO", \
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_SCOTT2016", \
+                   "ADMIX_EGYPTWGS_1000G", \
+                   "ADMIX_EGYPTWGS_BERGSTROEM2020"], \
+                   maf=["0.00","0.05"])
     
 
 
 
-################################################################################
-#################### Conducting admixture analysis #############################
-################################################################################
+
 
