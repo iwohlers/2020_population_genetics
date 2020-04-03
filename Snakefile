@@ -123,8 +123,8 @@ rule liftover_37To38:
     conda: "envs/picard.yaml"
     shell: "picard LiftoverVcf " + \
            "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
-           "-XX:ParallelGCThreads=4 " + \
-           "-Xmx250g " + \
+           "-XX:ParallelGCThreads=32 " + \
+           "-Xmx280g " + \
            "I={input.vcf} " + \
            "O={output.lifted} " + \
            "CHAIN={input.chain} " + \
@@ -374,9 +374,16 @@ rule download_1000g_genotypes_all:
 rule concatenate_chr_vcfs_1000g:
     input: expand("1000G/ALL.chr{chr}_GRCh38.genotypes.20170504.vcf.gz", \
                    chr=[str(x) for x in range(1,23)])
-    output: "1000G/1000G.vcf.gz"
+    output: "1000G/1000G_wo_chr.vcf.gz"
     conda: "envs/vcftools.yaml"
     shell: "vcf-concat {input} | bgzip > {output}"
+
+rule change_chrom_names_1000g:
+    input: "1000G/1000G_wo_chr.vcf.gz",
+           "liftover/change_chrom_names.txt"
+    output: "1000G/1000G_hg38.vcf"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_1000g:
     input: "1000G/1000G_final.vcf.gz.tbi"
@@ -424,7 +431,7 @@ rule keep_pass_variants:
     input: "data/SCOTT_2016/74223/PhenoGenotypeFiles/"+ \
            "RootStudyConsentSet_phs000288.Ciliopathies_Exome.v2.p2.c1.GRU/"+\
            "GenotypeFiles/vcf/ciliopathies_exomes_2569.vcf.gz"
-    output: "SCOTT2016/ciliopathies_exomes_2569_hg37.vcf"
+    output: "SCOTT2016/ciliopathies_exomes_2569_wo_chr.vcf"
     log: "SCOTT2016/scott_keeppass.log"
     conda: "envs/vcftools.yaml"
     shell: "vcftools --gzvcf {input} " + \
@@ -432,6 +439,13 @@ rule keep_pass_variants:
                     "--recode " + \
                     "--stdout " + \
                     ">{output} 2>{log}"
+
+rule change_chrom_names_scott:
+    input: "SCOTT2016/ciliopathies_exomes_2569_wo_chr.vcf",
+           "liftover/change_chrom_names.txt"
+    output: "SCOTT2016/ciliopathies_exomes_2569_hg37.vcf"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
 rule preprocess_scott:
     input: "SCOTT2016/ciliopathies_exomes_2569_final.vcf.gz.tbi"
@@ -673,6 +687,7 @@ rule intersecting_dataset_files:
         shell("bcftools isec -c none " + \
                             "-n~"+bitmask+" " + \
                             "--output-type z " + \
+                            "--threads 24 " + \
                             "-p admixture/{wildcards.analysis}/data/ " + \
                             "admixture/{wildcards.analysis}/data/*.vcf.gz"
         )
@@ -690,13 +705,14 @@ rule merging_datasets:
            "admixture/{analysis}/data/0000.vcf.gz",
            "admixture/{analysis}/data/0001.vcf.gz"
     output: "admixture/{analysis}/{analysis}.vcf.gz"
+    log: "admixture/{analysis}/{analysis}_merging.log"
     conda: "envs/bcftools.yaml"
     shell: "bcftools merge " + \
               "--merge all " + \
               "--output-type z " + \
               "--output {output} " + \
-              "--threads 4 " + \
-              "admixture/{wildcards.analysis}/data/00*.vcf.gz"
+              "--threads 24 " + \
+              "admixture/{wildcards.analysis}/data/00*.vcf.gz >{log} 2>&1"
 
 # Here, we apply actually several quite strict filtering criteria, in order to
 # select variants that are not likely to have some technical artifacts, since
@@ -708,6 +724,7 @@ rule merging_datasets:
 # (iv) biallelic variants (--min-alleles 2 and --max-alleles 2)
 # (v) significantly violating hardy weinberg disequilibrium (--hwe 0.000001)
 # (vi) allow only autosomes, i.e. chromosomes 1-22
+# (vii) variants that are not PASS in the filter column
 rule filter_for_admixture:
     input: "admixture/{analysis}/{analysis}.vcf.gz"
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf"
@@ -721,12 +738,13 @@ rule filter_for_admixture:
                     "--min-alleles 2 " + \
                     "--max-alleles 2 " + \
                     "--hwe 0.000001 " + \
-                    "--chr chr1 --chr chr2 --chr chr3 --chr chr4 --chr chr5 "+ \
-                    "--chr chr6 --chr chr7 --chr chr8 --chr chr9 "+ \
+                    "--chr chr1 --chr chr2 --chr chr3 --chr chr4 --chr chr5 " + \
+                    "--chr chr6 --chr chr7 --chr chr8 --chr chr9 " + \
                     "--chr chr10 --chr chr11 --chr chr12 --chr chr13 " + \
                     "--chr chr14 --chr chr15 --chr chr16 --chr chr17 " + \
                     "--chr chr18 --chr chr19 --chr chr20 --chr chr21 " + \
-                    "--chr chr22 "+ \
+                    "--chr chr22 " + \
+                    "--remove-filtered-all " + \
                     "--recode " + \
                     "--stdout " + \
                     "> {output} 2>{log}"
@@ -839,7 +857,7 @@ rule run_admixture:
     conda: "envs/admixture.yaml"
     shell: "cd admixture/{wildcards.analysis}; " + \
            "admixture  --seed=42 " + \
-                       "-j48 " + \
+                       "-j24 " + \
                        "--cv=5 " + \
                        "../../{input[0]} {wildcards.K} > ../../{log}"
 
@@ -874,21 +892,172 @@ rule plot_admixture_pophelper:
 
 rule admixture_all:
     input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
-                   analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
-                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_1000G", \
+                   analysis = ["ADMIX_ALLWGS_FERNANDES"], \
+                   maf=["0.00"])
+
+#rule admixture_all:
+#    input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
+#                   analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_1000G", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_SCOTT2016", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_BERGSTROEM2020"
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_JOHN2018", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_FAKHRO2016", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_FERNANDES2019", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_HOLAZARIDIS2016", \
+#                   "ADMIX_EGYPTGSA_EGYPTGSAPSO"], \
+#                   maf=["0.00","0.05"]),
+#           expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
+#                   analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_JOHN2018"], \
+#                   maf=["0.00"])
+
+    
+################################################################################
+############################## ROH Computation #################################
+################################################################################
+
+rule runs_of_homzygosity:
+    input: "admixture/{analysis}/{analysis}_filtered_0.00.bed",
+           "admixture/{analysis}/{analysis}_filtered_0.00.bim",
+           "admixture/{analysis}/{analysis}_filtered_0.00.fam"
+    output: "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom",
+            "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.indiv",
+            "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.summary"
+    log: "admixture/{analysis}/ROH/{analysis}_filtered_0.00.log"
+    params: prefix_out=lambda wildcards, output: output[0][:-4]
+    conda: "envs/plink2.yaml"
+    shell: "plink2 --bed {input[0]} " + \
+                  "--bim {input[1]} " + \
+                  "--fam {input[2]} " + \
+                  "--homozyg " + \
+                  "--out {params.prefix_out} > {log} 2>&1"
+
+rule runs_of_homozygosity_all:
+    input: expand("admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.indiv", \
+    analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
-                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_FAKHRO2016", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_FERNANDES2019", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_HOLAZARIDIS2016", \
-                   "ADMIX_EGYPTGSA_EGYPTGSAPSO", \
-                   "ADMIX_EGYPTGSA_EGYPTGSAPSO_SCOTT2016", \
-                   "ADMIX_EGYPTWGS_1000G", \
-                   "ADMIX_EGYPTWGS_BERGSTROEM2020"], \
-                   maf=["0.00","0.05"])
-    
+                   "ADMIX_EGYPTGSA_EGYPTGSAPSO"])
 
 
+################################################################################
+############################## PCA computation #################################
+################################################################################
 
+# Conversion from bed/bim/fam to ped/map
+rule convert_to_ped_map:
+    input: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bed", 
+           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.bim",
+           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam"
+    output: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.ped", 
+            "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map"
+    params: in_base = lambda wildcards, input: input[0][:-4], 
+            out_base = lambda wildcards, output: output[0][:-4]
+    conda: "envs/plink2.yaml"
+    shell: "plink2 --bfile {params.in_base} " + \
+                  "--fam {input[2]} " + \
+                  "--recode " + \
+                  "--out {params.out_base} "
 
+# Write the parameter file needed by the Eigensoft convertf program
+rule eigentstrat_parameter_file:
+    input: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.ped", 
+           "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map"
+    output: "admixture/{analysis}/pca/{analysis}_{maf}.ped2eigenstrat.params"
+    params: gout="admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
+            sout="admixture/{analysis}/pca/{analysis}_{maf}.snp",
+            iout="admixture/{analysis}/pca/{analysis}_{maf}.ind"
+    run: 
+        with open(output[0],"w") as f_out:
+            f_out.write("genotypename:    "+input[0]+"\n")
+            f_out.write("snpname:         "+input[1]+"\n") 
+            f_out.write("indivname:       "+input[0]+"\n")
+            f_out.write("outputformat:    EIGENSTRAT\n")
+            f_out.write("genotypeoutname: "+params.gout+"\n")
+            f_out.write("snpoutname:      "+params.sout+"\n")
+            f_out.write("indivoutname:    "+params.iout+"\n")
+            f_out.write("familynames:     NO\n")
 
+# This is the actual conversion from ped format to the eigenstrat input format
+rule ped_to_eigentstrat:
+    input: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.ped", 
+           "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map",
+           "admixture/{analysis}/pca/{analysis}_{maf}.ped2eigenstrat.params"
+    output: "admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
+            "admixture/{analysis}/pca/{analysis}_{maf}.snp",
+            "admixture/{analysis}/pca/{analysis}_{maf}.ind"
+    conda: "envs/eigensoft.yaml"
+    shell: "convertf -p {input[2]}"
+
+# Running Eigensofts smartpca module which computes the population PCs
+# The smartpca parameters:
+# -i example.geno  : genotype file in any format (see ../CONVERTF/README)
+# -a example.snp   : snp file in any format (see ../CONVERTF/README)
+# -b example.ind   : indiv file in any format (see ../CONVERTF/README)
+# -k k             : (Default is 10) number of principal components to output
+# -o example.pca   : output file of principal components.  Individuals removed
+#                    as outliers will have all values set to 0.0 in this file.
+# -p example.plot  : prefix of output plot files of top 2 principal components.
+#                    (labeling individuals according to labels in indiv file)
+# -e example.eval  : output file of all eigenvalues
+# -l example.log   : output logfile
+# -m maxiter       : (Default is 5) maximum number of outlier removal iterations.
+#                    To turn off outlier removal, set -m 0.
+# -t topk          : (Default is 10) number of principal components along which 
+#                    to remove outliers during each outlier removal iteration.
+# -s sigma         : (Default is 6.0) number of standard deviations which an
+#                    individual must exceed, along one of topk top principal
+# 		             components, in order to be removed as an outlier.
+rule smartpca_parameter_file:
+    input: "admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
+           "admixture/{analysis}/pca/{analysis}_{maf}.snp",
+           "admixture/{analysis}/pca/{analysis}_{maf}.ind"
+    output: "admixture/{analysis}/pca/{analysis}_{maf}.smartpca.params"
+    params: evec="admixture/{analysis}/pca/{analysis}_{maf}.pca.evec",
+            eval="admixture/{analysis}/pca/{analysis}_{maf}.eval",
+            iout="admixture/{analysis}/pca/{analysis}_{maf}.ind"
+    run: 
+        with open(output[0],"w") as f_out:
+            f_out.write("genotypename:    "+input[0]+"\n")
+            f_out.write("snpname:         "+input[1]+"\n") 
+            f_out.write("indivname:       "+input[2]+"\n")
+            f_out.write("evecoutname:     "+params.evec+"\n")
+            f_out.write("evaloutname:     "+params.eval+"\n")
+            f_out.write("numoutevec: 20\n")
+            f_out.write("numoutlieriter: 0\n")
+
+rule eigensoft_smartpca:
+    input: "admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
+           "admixture/{analysis}/pca/{analysis}_{maf}.snp",
+           "admixture/{analysis}/pca/{analysis}_{maf}.ind",
+           "admixture/{analysis}/pca/{analysis}_{maf}.smartpca.params"
+    output: "admixture/{analysis}/pca/{analysis}_{maf}.eval",
+            "admixture/{analysis}/pca/{analysis}_{maf}.log",
+            "admixture/{analysis}/pca/{analysis}_{maf}.pca.evec"
+    conda: "envs/eigensoft.yaml"
+    shell: "smartpca -p {input[3]} > {output[1]}"
+
+# Plotting the PCs
+rule plot_gt_pcs:
+    input: "admixture/{analysis}/pca/{analysis}_{maf}.pca.evec",
+           "admixture/{analysis}/sample_anno.txt"
+    output: "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs3.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs4.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_2vs3.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_2vs4.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_3vs4.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_scree_plot.pdf",
+            "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_3d.pdf"
+    params: out_path = "admixture/{analysis}/pca/",
+            anno = "{anno}"
+    conda: "envs/pcplot.yaml"
+    script: "scripts/plot_gt_pcs.R"
+
+rule genotype_pcs_all:
+    input: expand("admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf", \
+                  analysis=["ADMIX_ALLWGS_FERNANDES"], \
+                  maf=["0.00"], anno=[str(x) for x in range(2,8)])

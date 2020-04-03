@@ -1,0 +1,5 @@
+channels:
+  - conda-forge
+dependencies:
+  - r-latticeextra=0.6_29
+  - r-scatterplot3d=0.3_41
