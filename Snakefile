@@ -123,8 +123,8 @@ rule liftover_37To38:
     conda: "envs/picard.yaml"
     shell: "picard LiftoverVcf " + \
            "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
-           "-XX:ParallelGCThreads=32 " + \
-           "-Xmx280g " + \
+           "-XX:ParallelGCThreads=24 " + \
+           "-Xmx85g " + \
            "I={input.vcf} " + \
            "O={output.lifted} " + \
            "CHAIN={input.chain} " + \
@@ -192,10 +192,15 @@ rule egypt_wgs:
 
 # The variant calling by Matthias (data/vars.clean.vcf.gz) already contains
 # the chromosome names with trailing "chr". Thus, here we just unzip
+# It turns out that eventually the AD tag of some variants cause problems
+# when merging (see 
+# http://samtools.github.io/bcftools/howtos/FAQ.html#incorrect-nfields),
+# thus we remove this tag here
 rule cp_and_unzip_egypt_wgs:
     input: "data/vars.clean.vcf.gz"
     output: "EGYPTWGS/egyptians_hg38.vcf"
-    shell: "zcat {input} > {output}"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate -x 'FORMAT/AD' {input} > {output}"
 
 rule preprocess_egyptwgs:
     input: "EGYPTWGS/egyptians_final.vcf.gz.tbi"
@@ -527,12 +532,52 @@ rule exclude_lowqual_add_header:
     shell: "cat {input[1]} > {output}; "
            "zcat {input[0]} | grep -v '##' | grep -v 'LowQual' >> {output} "
 
-rule change_chrom_names_rodriguez:
-    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.vcf",
+rule divide_in_chrom:
+    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.vcf"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf"
+    wildcard_constraints: num="\d+"
+    log: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.log"
+    conda: "envs/vcftools.yaml"
+    shell: "vcftools --vcf {input} " + \
+                    "--chr {wildcards.num} " + \
+                    "--recode " + \
+                    "--stdout >{output} 2>{log}"
+
+rule change_chrom_names_chromwise:
+    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf",
            "liftover/change_chrom_names.txt"
-    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg37.vcf"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}.vcf"
+    wildcard_constraints: num="\d+"
     conda: "envs/bcftools.yaml"
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
+
+rule liftover_chromwise:
+    input: vcf="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}.vcf",
+           chain="liftover/hg19ToHg38.over.chain.gz",
+           dict="liftover/hg38.fa.gz.dict",
+           ref="liftover/hg38.fa.gz"
+    output: lifted="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.vcf",
+            rejected="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_rejected.vcf"
+    wildcard_constraints: num="\d+"
+    log: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.log"
+    conda: "envs/picard.yaml"
+    shell: "picard LiftoverVcf " + \
+           "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
+           "-XX:ParallelGCThreads=32 " + \
+           "-Xmx280g " + \
+           "I={input.vcf} " + \
+           "O={output.lifted} " + \
+           "CHAIN={input.chain} " + \
+           "REJECT={output.rejected} " + \
+           "RECOVER_SWAPPED_REF_ALT=true " + \
+           "R={input.ref} > {log} 2>&1"
+
+rule combine_lifted:
+    input: expand("RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.vcf", \
+                  num=range(1,23))
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg38.vcf.gz"
+    conda: "envs/vcftools.yaml"
+    shell: "vcf-concat {input} | bgzip > {output}"
 
 rule preprocess_rodriguez:
     input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_final.vcf.gz.tbi"
@@ -692,6 +737,26 @@ rule intersecting_dataset_files:
                             "admixture/{wildcards.analysis}/data/*.vcf.gz"
         )
 
+# mt the AD field that is causing problems with merging (seems that the 
+# bergstroem data has this problem): 
+# http://samtools.github.io/bcftools/howtos/FAQ.html#incorrect-nfields
+#rule rm_incorrect_field:
+#    input: "admixture/{analysis}/datasets.txt",
+#           "admixture/{analysis}/data/sites.txt"
+#    output: "admixture/{analysis}/data/0000_fixed.vcf.gz",
+#           "admixture/{analysis}/data/0001_fixed.vcf.gz"
+#    params: path=lambda wildcards, input: input[1][:-9]
+#    run:
+#        # For every dataset, up to 10
+#        in_names = [params.path+"000"+str(x)+".vcf.gz" for x in range(1,10)]
+#        out_names = [params.path+"000"+str(x)+"_fixed.vcf.gz" for x in range(1,10)]
+#        with open(input[0],"r") as f_in:
+#            i = 0
+#            for line in f_in:
+#                # This generates files 0000.vcf,0001.vcf, etc
+#                shell("bcftools annotate -x AD "+in_names[i]+" > "+out_names[i])
+#                i +=1 
+
 # This rule gets only two data set files as input, but in fact merges up to 
 # eleven (i.e. all available) data sets
 # Merging file
@@ -752,6 +817,18 @@ rule filter_for_admixture:
 # Converting vcf files to plink binary format (bed/bim/fam) for admixture
 # Sample ID conversion: 
 # --double-id causes both family and individual IDs to be set to the sample ID
+# It seems for one or more wgs data sets there are so-called "half-calls"
+# which cause the conversion to end with error. Thus, we havae to adjust 
+# plink conversion parameters to:
+# --vcf-half-call missing
+# The current VCF standard does not specify how '0/.' and similar GT values 
+# should be interpreted. By default (mode 'error'/'e'), PLINK 1.9 errors out and
+# reports the line number of the anomaly. Should the half-call be intentional, 
+# though (this can be the case with Complete Genomics data), you can request the
+# following other modes:
+#    'haploid'/'h': Treat half-calls as haploid/homozygous (the PLINK 1 file format does not distinguish between the two). This maximizes similarity between the VCF and BCF2 parsers.
+#    'missing'/'m': Treat half-calls as missing.
+#    'reference'/'r': Treat the missing part as reference.
 rule vcf_to_plink:
     input: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf.gz"
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.bed",
@@ -764,6 +841,7 @@ rule vcf_to_plink:
     shell: "plink2 --vcf {input} " + \
                   "--double-id " + \
                   "--make-bed " + \
+                  "--vcf-half-call missing " + \
                   "--out {params.out_base} " + \
                   ">{log} 2>&1"
 
@@ -921,10 +999,10 @@ rule runs_of_homzygosity:
     input: "admixture/{analysis}/{analysis}_filtered_0.00.bed",
            "admixture/{analysis}/{analysis}_filtered_0.00.bim",
            "admixture/{analysis}/{analysis}_filtered_0.00.fam"
-    output: "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom",
-            "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.indiv",
-            "admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.summary"
-    log: "admixture/{analysis}/ROH/{analysis}_filtered_0.00.log"
+    output: "admixture/{analysis}/roh/{analysis}_filtered_0.00.hom",
+            "admixture/{analysis}/roh/{analysis}_filtered_0.00.hom.indiv",
+            "admixture/{analysis}/roh/{analysis}_filtered_0.00.hom.summary"
+    log: "admixture/{analysis}/roh/{analysis}_filtered_0.00.log"
     params: prefix_out=lambda wildcards, output: output[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bed {input[0]} " + \
@@ -934,13 +1012,26 @@ rule runs_of_homzygosity:
                   "--out {params.prefix_out} > {log} 2>&1"
 
 rule runs_of_homozygosity_all:
-    input: expand("admixture/{analysis}/ROH/{analysis}_filtered_0.00.hom.indiv", \
+    input: expand("admixture/{analysis}/roh/{analysis}_filtered_0.00.hom.indiv", \
     analysis = ["ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_FAKHRO2016", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_FERNANDES2019", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO_HOLAZARIDIS2016", \
                    "ADMIX_EGYPTGSA_EGYPTGSAPSO"])
+
+rule plotting_roh:
+    input: "admixture/{analysis}/roh/{analysis}_filtered_0.00.hom.indiv",
+           "admixture/{analysis}/sample_anno.txt"
+    output:  "admixture/{analysis}/roh/{analysis}_{anno}_roh.pdf"
+    params: anno = "{anno}"
+    conda: "envs/rohplot.yaml"
+    script: "scripts/plot_roh.R"
+
+rule roh_all:
+    input: expand("admixture/{analysis}/roh/{analysis}_{anno}_roh.pdf", \
+                  analysis=["ADMIX_ALLWGS_FERNANDES"], \
+                  anno=[str(x) for x in range(2,8)])
 
 
 ################################################################################

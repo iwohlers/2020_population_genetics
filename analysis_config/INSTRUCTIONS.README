@@ -1,0 +1,39 @@
+The filename of the config file provided here will become the analysis name.
+
+The following variables can be set:
+SAMPLE
+DATASET
+WORLD_REGION
+AFRICA_REGION
+POPULATION
+COUNTRY
+GENOTYPING_METHOD
+
+Every AND combination of inclusion criteria needs to be specified in one line, comma-separated.
+An empty string denotes that any value in this field is allowed.
+If a sample fulfills the criteria specified by any of the lines, it will be used in the analysis.
+
+Lines starting with '#' are ignored.
+
+You may look at the files provided in the config folder for further examples.
+
+
+Here is one example file ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020.txt 
+The name of the respective analysis will be ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020
+The first line is a comment, all lines starting with '#' are ignored.
+The second line denotes that a sample is used if
+* it is in dataset EGYPTGSA
+OR
+* it is in dataset EGYPTGSAPSO
+OR
+*it is in dataset BUSBY2020 and from WORLD_REGION Africa
+OR
+*it is in dataset BUSBY2020 and from WORLD_REGION EUROPE
+
+# A config file for running admixture on the EGYPTGSA and EGYPTGSAPSO datasets.
+SAMPLE,DATASET,WORLD_REGION,AFRICA_REGION,POPULATION,COUNTRY,GENOTYPING_METHOD
+,EGYPTGSA,,,,,
+,EGYPTGSAPSO,,,,,
+,BUSBY2020,Africa,,,,
+,BUSBY2020,Europe,,,,
+
