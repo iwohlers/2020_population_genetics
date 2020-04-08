@@ -33,10 +33,15 @@ prepROHPlot <- function(ROH.list, pop.info) {
 # @return: list containing plots 'classification' and 'frequency'
 plotROH <- function(plot.df, ptitle="untitled", box.plot=FALSE, p.value=FALSE) {
   library(ggpubr)
+  library(gridExtra)
+  library(grid)
+  library(ggplot2)
+  library(lattice)
+
   # define things to compare - we'll go with groups aka 'IID' for now
   comp.select <- "POPULATION"
   comp.text <- "Populations"
-  c.vector <- RColorBrewer::brewer.pal(length(unique(plot.df[[eval(comp.select)]])), "Dark2")
+  c.vector <- rainbow(length(unique(plot.df[[eval(comp.select)]])))#RColorBrewer::brewer.pal(length(unique(plot.df[[eval(comp.select)]])), "Dark2")
   my_comparisons <- combn(unique(plot.df[[eval(comp.select)]]), m=2, function(x) c(x), simplify = FALSE)
   if(box.plot) {
     p_ROH_all <- ggplot(plot.df, aes(x = plot.df[,eval(comp.select)], y = MB)) + 
@@ -106,7 +111,7 @@ plotROH <- function(plot.df, ptitle="untitled", box.plot=FALSE, p.value=FALSE) {
   popfreq.plot <- grid.arrange(grobs=popfreq.list, ncol=nCol, left="ROH frequency scaled by number of samples")
   dev.off()
   
-  pdf(file=paste("ROH_classification_",ptitle,".pdf",sep=""), width=6, height=length(unique(plot.df$class))*6, onefile=FALSE)
+  pdf(file=paste(ptitle,sep=""), width=6, height=length(unique(plot.df$class))*6, onefile=FALSE)
   print(p_ROH_all)
   dev.off()
   

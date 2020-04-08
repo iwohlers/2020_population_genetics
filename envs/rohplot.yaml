@@ -10,3 +10,4 @@ dependencies:
   - r-lattice=0.20_41 
   - r-dplyr=0.8.5
   - r-data.table=1.12.8
+  - r-gridbase=0.4_7
