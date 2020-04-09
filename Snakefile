@@ -544,14 +544,17 @@ rule get_header_rodriguez:
 rule divide_in_50_files:
     input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.noheader"
     output: expand("RODRIGUEZFLORES2016/x{num}", \
-            num=["0"+str(x) for x in range(0,10)]+[str(x) for x in range(10,50)])
+            num=["00"+str(x) for x in range(0,10)]+ \
+            ["0"+str(x) for x in range(10,100)]+ \
+            [str(x) for x in range(100,1000)])
     shell: "cd RODRIGUEZFLORES2016; " + \
-           "split -d -n l/50 QG108.Autosomal.gq30.dp10.noheader "
+           "split -d -n l/1000 QG108.Autosomal.gq30.dp10.noheader "
    
 rule add_header_splitted_files:
     input: "RODRIGUEZFLORES2016/x{num}",
            "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.header"
     output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf"
+    wildcard_constraints: num="\d+"
     shell: "cat {input[1]} > {output}; "
            "cat {input[0]} >> {output} "
 
@@ -559,9 +562,14 @@ rule change_chrom_names_splitted_files:
     input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf",
            "liftover/change_chrom_names.txt"
     output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}_wchrom.vcf"
+    wildcard_constraints: num="\d+"
     conda: "envs/bcftools.yaml"
     shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
 
+# tried:            "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
+#           "-XX:ParallelGCThreads=24 " + \
+#           "RECOVER_SWAPPED_REF_ALT=true " + \
+#            "-Xmx90g " + \
 rule liftover_splitted_files:
     input: vcf="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}_wchrom.vcf",
            chain="liftover/hg19ToHg38.over.chain.gz",
@@ -573,19 +581,19 @@ rule liftover_splitted_files:
     log: "RODRIGUEZFLORES2016/x{num}_lifted.log"
     conda: "envs/picard.yaml"
     shell: "picard LiftoverVcf " + \
-           "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
-           "-XX:ParallelGCThreads=24 " + \
-           "-Xmx90g " + \
+           "-Xmx50g " + \
            "I={input.vcf} " + \
            "O={output.lifted} " + \
            "CHAIN={input.chain} " + \
            "REJECT={output.rejected} " + \
-           "RECOVER_SWAPPED_REF_ALT=true " + \
+           "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
            "R={input.ref} > {log} 2>&1"
 
 rule combine_lifted_splitted_files:
     input: expand("RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}_lifted.vcf", \
-            num=["0"+str(x) for x in range(1,10)]+[str(x) for x in range(10,51)])
+           num=["00"+str(x) for x in range(0,10)]+ \
+               ["0"+str(x) for x in range(10,100)]+ \
+               [str(x) for x in range(100,1000)])
     output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg38.vcf.gz"
     conda: "envs/vcftools.yaml"
     shell: "vcf-concat {input} | bgzip > {output}"
@@ -851,7 +859,7 @@ rule merging_datasets:
 rule filter_for_admixture:
     input: "admixture/{analysis}/{analysis}.vcf.gz"
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf"
-    log: "admixture/{analysis}/{analysis}_filtered_{maf}.log"
+    log: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf_filter.log"
     wildcard_constraints: maf="([0-9]*[.])?[0-9]+"
     conda: "envs/vcftools.yaml"
     shell: "vcftools --gzvcf {input} " + \
@@ -876,7 +884,7 @@ rule filter_for_admixture:
 # Sample ID conversion: 
 # --double-id causes both family and individual IDs to be set to the sample ID
 # It seems for one or more wgs data sets there are so-called "half-calls"
-# which cause the conversion to end with error. Thus, we havae to adjust 
+# which cause the conversion to end with error. Thus, we have to adjust 
 # plink conversion parameters to:
 # --vcf-half-call missing
 # The current VCF standard does not specify how '0/.' and similar GT values 
@@ -884,7 +892,9 @@ rule filter_for_admixture:
 # reports the line number of the anomaly. Should the half-call be intentional, 
 # though (this can be the case with Complete Genomics data), you can request the
 # following other modes:
-#    'haploid'/'h': Treat half-calls as haploid/homozygous (the PLINK 1 file format does not distinguish between the two). This maximizes similarity between the VCF and BCF2 parsers.
+#    'haploid'/'h': Treat half-calls as haploid/homozygous (the PLINK 1 file 
+#    format does not distinguish between the two). This maximizes similarity 
+#    between the VCF and BCF2 parsers.
 #    'missing'/'m': Treat half-calls as missing.
 #    'reference'/'r': Treat the missing part as reference.
 rule vcf_to_plink:
@@ -1029,7 +1039,7 @@ rule plot_admixture_pophelper:
 
 rule admixture_all:
     input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
-                   analysis = ["ADMIX_ALLWGS_FERNANDES"], \
+                   analysis = ["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
                    maf=["0.00"])
 
 #rule admixture_all:
@@ -1089,13 +1099,7 @@ rule plotting_roh:
 
 rule roh_all:
     input: expand("admixture/{analysis}/roh/{analysis}_{anno}_roh.pdf", \
-                  analysis=["ADMIX_ALLWGS_FERNANDES", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO_EGYPTWGS", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO_BUSBY2020", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO_FAKHRO2016", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO_FERNANDES2019", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO_HOLAZARIDIS2016", \
-                            "ADMIX_EGYPTGSA_EGYPTGSAPSO"], \
+                  analysis=["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
                   anno=[str(x) for x in range(2,8)])
 
 
@@ -1215,5 +1219,5 @@ rule plot_gt_pcs:
 
 rule genotype_pcs_all:
     input: expand("admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf", \
-                  analysis=["ADMIX_ALLWGS_FERNANDES"], \
+                  analysis=["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
                   maf=["0.00"], anno=[str(x) for x in range(2,8)])
