@@ -589,61 +589,31 @@ rule liftover_splitted_files:
            "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
            "R={input.ref} > {log} 2>&1"
 
+
+# Note: there are 5 of the 1000 files, which will take forever (>6h instead of
+# 45 seconds) to lift over. The about 25000 variants in them are between these 
+# start and end regions:
+# QG108.Autosomal.gq30.dp10_042.vcf: 1:143239321-146685121
+# QG108.Autosomal.gq30.dp10_043.vcf: 1:146685188-150213525
+# QG108.Autosomal.gq30.dp10_043.vcf: 2:89918514-97155372
+# QG108.Autosomal.gq30.dp10_456.vcf: 7:56939092-61980972
+# QG108.Autosomal.gq30.dp10_564.vcf: 9:40712045-9:66479808
+# I stoped their liftover and constructed manually empty files for them (which 
+# just contain the header)
 rule combine_lifted_splitted_files:
     input: expand("RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}_lifted.vcf", \
            num=["00"+str(x) for x in range(0,10)]+ \
                ["0"+str(x) for x in range(10,100)]+ \
                [str(x) for x in range(100,1000)])
-    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg38.vcf.gz"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_concatenated.vcf"
     conda: "envs/vcftools.yaml"
-    shell: "vcf-concat {input} | bgzip > {output}"
+    shell: "vcf-concat {input} > {output}"
 
-#rule divide_in_chrom:
-#    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10.vcf"
-#    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf"
-#    wildcard_constraints: num="\d+"
-#    log: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.log"
-#    conda: "envs/vcftools.yaml"
-#    shell: "vcftools --vcf {input} " + \
-#                    "--chr {wildcards.num} " + \
-#                    "--recode " + \
-#                    "--stdout >{output} 2>{log}"
-
-#rule change_chrom_names_chromwise:
-#    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_{num}.vcf",
-#           "liftover/change_chrom_names.txt"
-#    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}.vcf"
-#    wildcard_constraints: num="\d+"
-#    conda: "envs/bcftools.yaml"
-#    shell: "bcftools annotate --rename-chrs {input[1]} {input[0]} > {output}"
-
-#rule liftover_chromwise:
-#    input: vcf="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}.vcf",
-#           chain="liftover/hg19ToHg38.over.chain.gz",
-#           dict="liftover/hg38.fa.gz.dict",
-#           ref="liftover/hg38.fa.gz"
-#    output: lifted="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.vcf",
-#            rejected="RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_rejected.vcf"
-#    wildcard_constraints: num="\d+"
-#    log: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.log"
-#    conda: "envs/picard.yaml"
-#    shell: "picard LiftoverVcf " + \
-#           "-Djava.io.tmpdir=\"/scratch/tmp\" " + \
-#           "-XX:ParallelGCThreads=32 " + \
-#           "-Xmx280g " + \
-#           "I={input.vcf} " + \
-#           "O={output.lifted} " + \
-#           "CHAIN={input.chain} " + \
-#           "REJECT={output.rejected} " + \
-#           "RECOVER_SWAPPED_REF_ALT=true " + \
-#           "R={input.ref} > {log} 2>&1"
-
-#rule combine_lifted:
-#    input: expand("RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_chr{num}_lifted.vcf", \
-#                  num=range(1,23))
-#    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg38.vcf.gz"
-#    conda: "envs/vcftools.yaml"
-#    shell: "vcf-concat {input} | bgzip > {output}"
+rule sort_rodriguez:
+    input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_concatenated.vcf"
+    output: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_hg38.vcf.gz"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools sort --output-type v {input} | bgzip > {output}"
 
 rule preprocess_rodriguez:
     input: "RODRIGUEZFLORES2016/QG108.Autosomal.gq30.dp10_final.vcf.gz.tbi"
