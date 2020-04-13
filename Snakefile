@@ -492,9 +492,19 @@ rule download_bergstroem_all:
 rule concatenate_chr_vcfs_bergstroem:
     input: expand("BERGSTROEM2020/hgdp_wgs.20190516.full.chr{x}.vcf.gz", \
                   x=[str(num) for num in range(1,23)])
-    output: "BERGSTROEM2020/hgdp_wgs.20190516.full_hg38.vcf.gz"
+    output: "BERGSTROEM2020/hgdp_wgs.20190516.full.vcf.gz"
     conda: "envs/vcftools.yaml"
     shell: "vcf-concat {input} | bgzip > {output}"
+
+# It turns out that eventually the AD tag of some variants cause problems
+# when merging (see 
+# http://samtools.github.io/bcftools/howtos/FAQ.html#incorrect-nfields),
+# thus we remove this tag here
+rule rm_ad_flag:
+    input: "BERGSTROEM2020/hgdp_wgs.20190516.full.vcf.gz"
+    output: "BERGSTROEM2020/hgdp_wgs.20190516.full_hg38.vcf"
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --threads 24 -x 'FORMAT/AD' {input} > {output}"
 
 rule preprocess_bergstroem:
     input: "BERGSTROEM2020/hgdp_wgs.20190516.full_final.vcf.gz.tbi"
@@ -704,6 +714,11 @@ rule compile_samples_for_analysis:
                         f_out.write(line)
                         break
 
+rule individuals_in_analysis:
+    input: "admixture/{analysis}/sample_anno.txt"
+    output: "admixture/{analysis}/{analysis}_individuals.txt"
+    shell: "cat {input} | cut -f 1 > {output}"
+
 rule dataset_list:
     input: "admixture/{analysis}/sample_anno.txt"
     output: "admixture/{analysis}/datasets.txt"
@@ -776,12 +791,19 @@ rule intersecting_dataset_files:
 # mt the AD field that is causing problems with merging (seems that the 
 # bergstroem data has this problem): 
 # http://samtools.github.io/bcftools/howtos/FAQ.html#incorrect-nfields
-#rule rm_incorrect_field:
-#    input: "admixture/{analysis}/datasets.txt",
-#           "admixture/{analysis}/data/sites.txt"
-#    output: "admixture/{analysis}/data/0000_fixed.vcf.gz",
-#           "admixture/{analysis}/data/0001_fixed.vcf.gz"
-#    params: path=lambda wildcards, input: input[1][:-9]
+rule rm_incorrect_field:
+    input: "admixture/{analysis}/datasets.txt",
+           "admixture/{analysis}/data/sites.txt",
+           "admixture/{analysis}/data/0001.vcf.gz"
+    output: "admixture/{analysis}/data/0001_fixed.vcf.gz",
+            "admixture/{analysis}/data/0001_fixed.vcf.gz.tbi"
+    params: path=lambda wildcards, input: input[1][:-9]
+    conda: "envs/bcftools.yaml"
+    shell: "bcftools annotate --threads 24 " + \
+                             "--output-type z " + \
+                             "-x 'FORMAT/AD' " + \
+                             "{input[2]} > {output[0]}; " + \
+                             "tabix -p vcf {output[0]}; "
 #    run:
 #        # For every dataset, up to 10
 #        in_names = [params.path+"000"+str(x)+".vcf.gz" for x in range(1,10)]
@@ -819,6 +841,7 @@ rule merging_datasets:
 # select variants that are not likely to have some technical artifacts, since
 # we perform LD pruning anyway later, it is fine to exclude here all variants
 # that may cause problems. We exclude:
+# (i) individuals not in the sample anno
 # (i) indels (--remove-indels)
 # (ii) variants with minor allele frequency less than parameter (--maf)
 # (iii) variants with more than 5% missing genotypes (--max-missing)
@@ -827,12 +850,14 @@ rule merging_datasets:
 # (vi) allow only autosomes, i.e. chromosomes 1-22
 # (vii) variants that are not PASS in the filter column
 rule filter_for_admixture:
-    input: "admixture/{analysis}/{analysis}.vcf.gz"
+    input: "admixture/{analysis}/{analysis}.vcf.gz",
+           "admixture/{analysis}/{analysis}_individuals.txt"
     output: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf"
     log: "admixture/{analysis}/{analysis}_filtered_{maf}.vcf_filter.log"
     wildcard_constraints: maf="([0-9]*[.])?[0-9]+"
     conda: "envs/vcftools.yaml"
-    shell: "vcftools --gzvcf {input} " + \
+    shell: "vcftools --gzvcf {input[0]} " + \
+                    "--keep {input[1]} " + \
                     "--remove-indels " + \
                     "--maf {wildcards.maf} " + \
                     "--max-missing 0.95 " + \
@@ -920,7 +945,7 @@ rule find_ld_pruned_snps:
     params: in_base = lambda wildcards, input: input[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
-                  "--indep-pairwise 1000 10 0.2 " + \
+                  "--indep-pairwise 100 10 0.4 " + \
                   "--out {params.in_base} " + \
                   ">{log} 2>&1"
 
@@ -978,18 +1003,9 @@ rule run_admixture:
                        "--cv=5 " + \
                        "../../{input[0]} {wildcards.K} > ../../{log}"
 
-rule plot_admixture_q_values:
-    input: "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.{K}.Q",
-           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam",
-           "analysis_config/META_MASTER.txt"
-    output: "admixture/{analysis}/{analysis}_{maf}.{K}.Q.pdf"
-    conda: "envs/pophelper.yaml"
-    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
-    script: "scripts/plot_q_estimates.R"
-
 rule compile_cv_values:
     input: expand("admixture/{{analysis}}/{{analysis}}_{{maf}}.{K}.log", \
-                   K=range(1,16))
+                   K=range(1,21))
     output: "admixture/{analysis}/{analysis}_{maf}.cv"
     shell: "cat {input} | grep 'CV error' > {output}"
 
@@ -999,7 +1015,7 @@ rule plot_admixture_pophelper:
            "admixture/{analysis}/{analysis}_{maf}.cv",
            "admixture/{analysis}/{analysis}_{maf}_numvariants.txt",
            expand("admixture/{{analysis}}/{{analysis}}_filtered_{{maf}}_pruned.{K}.Q", \
-                   K=range(1,16))
+                   K=range(1,21))
     output: "admixture/{analysis}/{analysis}_{maf}.pophelper.pdf"
     params: out_path = lambda wildcards, output: "/".join(output[0].split("/")[:-1])+"/", \
             out_filename = lambda wildcards, output: output[0].split("/")[-1][:-4]
@@ -1009,7 +1025,7 @@ rule plot_admixture_pophelper:
 
 rule admixture_all:
     input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
-                   analysis = ["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
+                   analysis = ["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
                    maf=["0.00"])
 
 #rule admixture_all:
@@ -1069,7 +1085,7 @@ rule plotting_roh:
 
 rule roh_all:
     input: expand("admixture/{analysis}/roh/{analysis}_{anno}_roh.pdf", \
-                  analysis=["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
+                  analysis=["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
                   anno=[str(x) for x in range(2,8)])
 
 
@@ -1087,15 +1103,27 @@ rule convert_to_ped_map:
     params: in_base = lambda wildcards, input: input[0][:-4], 
             out_base = lambda wildcards, output: output[0][:-4]
     conda: "envs/plink2.yaml"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
     shell: "plink2 --bfile {params.in_base} " + \
                   "--fam {input[2]} " + \
                   "--recode " + \
                   "--out {params.out_base} "
 
+rule map_wo_ids:
+    input: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map"
+    output: "admixture/{analysis}/pca/{analysis}_filtered_{maf}.map"
+    wildcard_constraints: maf="([0-9]*[.])?[0-9]+", K="\d+"
+    run:
+        with open(input[0],"r") as f_in, open(output[0],"w") as f_out:
+            for line in f_in:
+                s = line.split("\t")
+                f_out.write(s[0]+"\t.\t"+"\t".join(s[2:]))
+            
+
 # Write the parameter file needed by the Eigensoft convertf program
 rule eigentstrat_parameter_file:
     input: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.ped", 
-           "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map"
+           "admixture/{analysis}/pca/{analysis}_filtered_{maf}.map"
     output: "admixture/{analysis}/pca/{analysis}_{maf}.ped2eigenstrat.params"
     params: gout="admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
             sout="admixture/{analysis}/pca/{analysis}_{maf}.snp",
@@ -1114,7 +1142,7 @@ rule eigentstrat_parameter_file:
 # This is the actual conversion from ped format to the eigenstrat input format
 rule ped_to_eigentstrat:
     input: "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.ped", 
-           "admixture/{analysis}/pca/{analysis}_filtered_{maf}_pruned.map",
+           "admixture/{analysis}/pca/{analysis}_filtered_{maf}.map",
            "admixture/{analysis}/pca/{analysis}_{maf}.ped2eigenstrat.params"
     output: "admixture/{analysis}/pca/{analysis}_{maf}.eigenstratgeno",
             "admixture/{analysis}/pca/{analysis}_{maf}.snp",
@@ -1189,5 +1217,5 @@ rule plot_gt_pcs:
 
 rule genotype_pcs_all:
     input: expand("admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf", \
-                  analysis=["ADMIX_ALLWGS_WO_RODRIGUEZ_EGYPTGSA_FERNANDES"], \
+                  analysis=["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
                   maf=["0.00"], anno=[str(x) for x in range(2,8)])
