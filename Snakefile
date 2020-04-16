@@ -945,7 +945,7 @@ rule find_ld_pruned_snps:
     params: in_base = lambda wildcards, input: input[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
-                  "--indep-pairwise 100 10 0.4 " + \
+                  "--indep-pairwise 1000 10 0.2 " + \
                   "--out {params.in_base} " + \
                   ">{log} 2>&1"
 
@@ -1005,7 +1005,7 @@ rule run_admixture:
 
 rule compile_cv_values:
     input: expand("admixture/{{analysis}}/{{analysis}}_{{maf}}.{K}.log", \
-                   K=range(1,21))
+                   K=range(1,26))
     output: "admixture/{analysis}/{analysis}_{maf}.cv"
     shell: "cat {input} | grep 'CV error' > {output}"
 
@@ -1015,7 +1015,7 @@ rule plot_admixture_pophelper:
            "admixture/{analysis}/{analysis}_{maf}.cv",
            "admixture/{analysis}/{analysis}_{maf}_numvariants.txt",
            expand("admixture/{{analysis}}/{{analysis}}_filtered_{{maf}}_pruned.{K}.Q", \
-                   K=range(1,21))
+                   K=range(1,26))
     output: "admixture/{analysis}/{analysis}_{maf}.pophelper.pdf"
     params: out_path = lambda wildcards, output: "/".join(output[0].split("/")[:-1])+"/", \
             out_filename = lambda wildcards, output: output[0].split("/")[-1][:-4]
@@ -1025,7 +1025,7 @@ rule plot_admixture_pophelper:
 
 rule admixture_all:
     input: expand("admixture/{analysis}/{analysis}_{maf}.pophelper.pdf", \
-                   analysis = ["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
+                   analysis = ["WGS_FERNANDES_BUSBY_EUR_AFR_ASIA"], \
                    maf=["0.00"])
 
 #rule admixture_all:
@@ -1085,7 +1085,7 @@ rule plotting_roh:
 
 rule roh_all:
     input: expand("admixture/{analysis}/roh/{analysis}_{anno}_roh.pdf", \
-                  analysis=["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
+                  analysis=["WGS_FERNANDES_BUSBY_EUR_AFR_ASIA"], \
                   anno=[str(x) for x in range(2,8)])
 
 
@@ -1217,5 +1217,5 @@ rule plot_gt_pcs:
 
 rule genotype_pcs_all:
     input: expand("admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf", \
-                  analysis=["WGS_BUSBY_EUR_AFR_ASIA", "ALLWGS_FERNANDES"], \
+                  analysis=["WGS_FERNANDES_BUSBY_EUR_AFR_ASIA"], \
                   maf=["0.00"], anno=[str(x) for x in range(2,8)])
