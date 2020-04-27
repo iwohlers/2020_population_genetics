@@ -18,6 +18,8 @@ out_path <- snakemake@params[[1]]
 #print(out_path)
 out_filename <- snakemake@params[[2]]
 #print(out_filename)
+out_meta <- snakemake@output[[2]]
+#print(out_meta)
 
 # Read in CV numbers
 cv_values <- read.table(cv_filename,sep=" ")[10:25,4]
@@ -41,6 +43,7 @@ groups <- meta_ordered[,2:6]
 # Maker sure these are characters
 sapply(groups, is.character)
 #print(groups)
+write.table(meta_ordered,file=out_meta,sep="\t",quote=FALSE,row.names=FALSE)
 
 # Read file with number of variants, make title
 numvariants_info <- readLines(title_filename)

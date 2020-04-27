@@ -945,7 +945,7 @@ rule find_ld_pruned_snps:
     params: in_base = lambda wildcards, input: input[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
-                  "--indep-pairwise 1000 10 0.2 " + \
+                  "--indep-pairwise 1000 10 0.1 " + \
                   "--out {params.in_base} " + \
                   ">{log} 2>&1"
 
@@ -1000,7 +1000,7 @@ rule run_admixture:
     shell: "cd admixture/{wildcards.analysis}; " + \
            "admixture  --seed=42 " + \
                        "-j24 " + \
-                       "--cv=5 " + \
+                       "--cv=10 " + \
                        "../../{input[0]} {wildcards.K} > ../../{log}"
 
 rule compile_cv_values:
@@ -1016,7 +1016,8 @@ rule plot_admixture_pophelper:
            "admixture/{analysis}/{analysis}_{maf}_numvariants.txt",
            expand("admixture/{{analysis}}/{{analysis}}_filtered_{{maf}}_pruned.{K}.Q", \
                    K=range(1,26))
-    output: "admixture/{analysis}/{analysis}_{maf}.pophelper.pdf"
+    output: "admixture/{analysis}/{analysis}_{maf}.pophelper.pdf",
+            "admixture/{analysis}/{analysis}_{maf}.pophelper.anno"
     params: out_path = lambda wildcards, output: "/".join(output[0].split("/")[:-1])+"/", \
             out_filename = lambda wildcards, output: output[0].split("/")[-1][:-4]
     conda: "envs/pophelper.yaml"
