@@ -945,7 +945,7 @@ rule find_ld_pruned_snps:
     params: in_base = lambda wildcards, input: input[0][:-4]
     conda: "envs/plink2.yaml"
     shell: "plink2 --bfile {params.in_base} " + \
-                  "--indep-pairwise 1000 10 0.1 " + \
+                  "--indep-pairwise 1000 10 0.2 " + \
                   "--out {params.in_base} " + \
                   ">{log} 2>&1"
 
@@ -1202,7 +1202,8 @@ rule eigensoft_smartpca:
 # Plotting the PCs
 rule plot_gt_pcs:
     input: "admixture/{analysis}/pca/{analysis}_{maf}.pca.evec",
-           "admixture/{analysis}/sample_anno.txt"
+           "admixture/{analysis}/{analysis}_filtered_{maf}_pruned.fam",
+           "analysis_config/META_MASTER.txt"
     output: "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs2.pdf",
             "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs3.pdf",
             "admixture/{analysis}/pca/{analysis}_{maf}_{anno}_pca_1vs4.pdf",

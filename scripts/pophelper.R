@@ -51,7 +51,11 @@ title_numbers <- paste(length(meta$SAMPLE)," individuals, ",numvariants_info[6],
 #print(title_numbers)
 
 # Colors "shiny" and "kelly_22 (1:5) plus black for having 25 colors overall
-shiny_colors <- c("#1D72F5","#DF0101","#77CE61", "#FF9326","#A945FF","#0089B2","#FDF060","#FFA6B2","#BFF217","#60D5FD","#CC1577","#F2B950","#7FB21D","#EC496F","#326397","#B26314","#027368","#A4A4A4","#610B5E","#000000","#F2F3F4","#222222","#F3C300","#875692","#F38400")
+#shiny_colors <- c("#1D72F5","#DF0101","#77CE61", "#FF9326","#A945FF","#0089B2","#FDF060","#FFA6B2","#BFF217","#60D5FD","#CC1577","#F2B950","#7FB21D","#EC496F","#326397","#B26314","#027368","#A4A4A4","#610B5E","#000000","#F2F3F4","#222222","#F3C300","#875692","#F38400")
+# Now, we use the paper colors, as specified by Michael (plus black for 25th component)
+#shiny_colors <- c("#9467BD","#F7B6D2","#7F7F7F","#9EDAE5","#98DF8A","#C49C94","#2CA02C","#C7C7C7","#FF7F0E","#C5B0D5","#BCBD22","#F8DC0B","#D62728","#AEC7E8","#2CA02C","#17BECF","#E377C2","#000000","#FF9896","#FF7F0E","#8C564B","#1F77B4","#1F77B4","#DBDB8D","#FFBB78","#000000")
+shiny_colors <- c("#9467BD","#F7B6D2","#7F7F7F","#9EDAE5","#98DF8A","#C49C94","#32CD32","#C7C7C7","#DAA520","#C5B0D5","#BCBD22","#F8DC0B","#D62728","#AEC7E8","#2CA02C","#17BECF","#E377C2","#000000","#FF9896","#FF7F0E","#8C564B","#FFFFF0","#1F77B4","#DBDB8D","#FFBB78")
+
 
 plotQ(slist[10:25],imgoutput="join",grplab=groups,ordergrp=T,sharedindlab=FALSE,showlegend=T,showsp=FALSE,sortind="all",imgtype="pdf",exportpath=out_path,outputfilename=out_filename,splab=as.character(cv_value_labs),clustercol=shiny_colors,showtitle=TRUE,titlelab=title_numbers)
 

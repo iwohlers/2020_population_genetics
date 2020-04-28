@@ -7,7 +7,8 @@ library("scatterplot3d")
 
 # Get the name of the input file
 filename <- snakemake@input[[1]]
-annotation_file <- snakemake@input[[2]]
+fam_file <- snakemake@input[[2]]
+annotation_file <- snakemake@input[[3]]
 path <- snakemake@params[[1]]
 anno_param <- as.integer(snakemake@params[[2]])
 fname_pca_1vs2 <- snakemake@output[[1]]
@@ -30,13 +31,23 @@ pcs <- read.table(filename,row.names=1,col.names=c("rowname","PC1","PC2","PC3","
 ########## Sample annotation ##########
 
 # Obtain the sample annotation
-sample_annotation <- read.table(annotation_file, header=FALSE, sep="\t")
+fam_ids <- read.table(fam_file, header=FALSE, sep=" ")
+head(fam_ids)
+sample_annotation <- read.table(annotation_file, header=TRUE, sep="\t")
+#head(sample_annotation)
 
 # Bring samples in genotype and in sample annotation in the same order
+sample_annotation <- sample_annotation[sample_annotation$SAMPLE %in% as.character(fam_ids[,1]),]
 order <- sample_annotation[,1]
 pcs <- pcs[as.character(order),]
+#head(sample_annotation)
 # Make sure that rownames and sample annotation match
-all(as.character(sample_annotation[,1]) == row.names(pcs))
+#print(as.character(sample_annotation[,1]))
+#print(row.names(pcs))
+#dim(sample_annotation)
+#dim(pcs)
+all(as.character(sample_annotation[,1]) == as.character(row.names(pcs)))
+
 
 ########## Genotype principal components ##########
 
@@ -48,15 +59,15 @@ eig_pc4 <- eigenvalues[4]
 
 # Rewrite empty info to "Unknown"
 group <- as.character(sample_annotation[,anno_param])
-print(group)
+#print(group)
 group[group==""] <- "Unknown"
 group <- as.factor(group)
 pc_col <- rainbow(length(levels(group)))
 
 # Get the PC values of the Egyptians
 #egyptian_ids <- sample_annotation[sample_annotation[,6]=="Egypt",]$V1
-pc_egypt <- pcs[sample_annotation[,6]=="Egypt",]
-head(pc_egypt)
+pc_egypt <- pcs[sample_annotation[,5]=="Egypt",]
+#head(pc_egypt)
 
 # PC1/PC2
 pdf(fname_pca_1vs2)
