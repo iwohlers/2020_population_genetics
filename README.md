@@ -10,7 +10,7 @@ In order to run the analyses, the genotype data of the public data sets used has
 **Instructions:**  
 Raw base files need to be in place and Bioconda installed (https://bioconda.github.io).  
 Please note: Some analyses need a considerable amount of memory (up to 180 GB RAM) and/or CPU (up to 48 cores).  
-Run (parts of) the workflow to generate a target file via  
+Run (parts of) the workflow to generate a target file via   
 
 ```
 snakemake --use-conda TARGETFILENAME  
